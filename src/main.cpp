@@ -248,25 +248,54 @@ int main() {
 	  if (prev_size > 0) {
             car_s = end_path_s;
 	  }
+ 
+          // go thru every car and determine whether it is in our lane
+          // then, calculate its speed and location into the future
+          // if the car is within 30 meters start changing lanes and slowing down
+          vector<bool> too_close_front{false, false, false};
+          vector<bool> too_close_rear{false, false, false};
+
+          for(int i = 0; i < sensor_fusion.size(); i++) {
+            float d = sensor_fusion[i][6];
+            double vx = sensor_fusion[i][3];
+	    double vy = sensor_fusion[i][4];
+	    double check_speed = sqrt(vx*vx + vy*vy);
+	    double check_car_s = sensor_fusion[i][5];
+
+	    check_car_s += ((double)prev_size*.02*check_speed);
+
+            for(int l = 0; l < too_close_front.size(); l++) {
+	      if (d < (2.0 + 4.0*l + 2.0) && d > (2.0 + 4.0*l - 2.0)) {
+	        if ((check_car_s > car_s) && (check_car_s-car_s < 30.0)) {
+		  too_close_front[l] = true;
+	        }
+	        if ((check_car_s <= car_s) && (car_s-check_car_s <= 30.0)) {
+		  too_close_rear[l] = true;
+	        }
+              }
+            }
+          }
 
 	  bool too_close = false;
-	  for(int i = 0; i < sensor_fusion.size(); i++) {
-            float d = sensor_fusion[i][6];
-	    if (d < (2.0 + 4.0*lane + 2.0) && d > (2.0 + 4.0*lane - 2.0)) {
-              double vx = sensor_fusion[i][3];
-	      double vy = sensor_fusion[i][4];
-	      double check_speed = sqrt(vx*vx + vy*vy);
-	      double check_car_s = sensor_fusion[i][5];
 
-	      check_car_s += ((double)prev_size*.02*check_speed);
-	      if ((check_car_s > car_s) && (check_car_s-car_s < 30.0)) {
-                //ref_vel = 29.5;
-		too_close = true;
-		lane = 1 - lane;
-	      }
-	    }
-	  }
-          
+          if (too_close_front[lane]) {
+            too_close = true;
+            // consider left lane change
+            if (lane - 1 >= 0) {
+              if (!too_close_front[lane-1] && !too_close_rear[lane-1]) {
+                lane = lane-1; 
+                goto lane_change_occurred;
+              }  
+            } 
+            if (lane + 1 <= 2) {
+              if (!too_close_front[lane+1] && !too_close_rear[lane+1]) {
+                lane = lane+1; 
+              }  
+            }
+          }
+lane_change_occurred: 
+          // if the car is too close, start slowing down
+          // otherwise accelerate until we reach speed limit 
 	  if (too_close) {
             ref_vel -= .224;
 	  } else if (ref_vel < 49.5) {
@@ -276,6 +305,10 @@ int main() {
 	  vector<double> ptsx, ptsy;
 	  double ref_x = car_x, ref_y = car_y, ref_yaw = deg2rad(car_yaw);
 
+          // Here we create five points for the spline
+          // the points consist of two points from the previous path (if present) 
+          // and three points 30 meters, 60 meters, and 90 meters away in frenet 
+          // coordinate space.
           if (prev_size < 2) {
             double prev_car_x = car_x - cos(car_yaw);
 	    double prev_car_y = car_y - sin(car_yaw);
@@ -313,6 +346,7 @@ int main() {
           ptsy.push_back(next_wp1[1]);
           ptsy.push_back(next_wp2[1]);
 
+          // transform points of the spline into a car reference frame
           for(int i = 0; i < ptsx.size(); i++) {
             double shift_x = ptsx[i] - ref_x;
 	    double shift_y = ptsy[i] - ref_y;
@@ -321,31 +355,27 @@ int main() {
 	    ptsy[i] = (shift_x * sin(0 - ref_yaw) + shift_y * cos(0 - ref_yaw));
 	  }
 
-	  //std::cout << "line points " << std::endl;
-	  //for (int i = 0; i < ptsx.size(); i++) {
-          //  std::cout << i << " " << ptsx[i] << "," << ptsy[i] << " ";
-	  //}
-	  //std::cout << std::endl; 
-
 	  tk::spline s;
 
 	  s.set_points(ptsx, ptsy);
 
        	  vector<double> next_x_vals;
           vector<double> next_y_vals;
-
+          
+          // copy previous path points 
           for(int i = 0; i < previous_path_x.size(); i++)
           {
             next_x_vals.push_back(previous_path_x[i]);
             next_y_vals.push_back(previous_path_y[i]);
           }
 
+          // take a target 30 meters away in x and calculate its y value 
 	  double target_x = 30.0;
 	  double target_y = s(target_x);
 	  double target_dist = sqrt(target_x*target_x + target_y*target_y);
 
 	  double x_add_on = 0;
-
+          // now fill the rest of points 
 	  for(int i = 1; i <= 50 - previous_path_x.size(); i++) {
             double N = target_dist/(.02*ref_vel/2.24);
 	    double x_point = x_add_on + target_x/N;
@@ -355,7 +385,8 @@ int main() {
 
 	    double x_ref = x_point;
 	    double y_ref = y_point;
-
+            
+            // transform calculated reference points back into Cartesian coordinates
 	    x_point = x_ref*cos(ref_yaw)-y_ref*sin(ref_yaw);
 	    y_point = x_ref*sin(ref_yaw)+y_ref*cos(ref_yaw);
 
