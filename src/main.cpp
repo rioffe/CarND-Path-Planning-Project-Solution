@@ -257,15 +257,22 @@ int main() {
 
           for(int i = 0; i < sensor_fusion.size(); i++) {
             float d = sensor_fusion[i][6];
+            double x = sensor_fusion[i][1];
+	    double y = sensor_fusion[i][2];
             double vx = sensor_fusion[i][3];
 	    double vy = sensor_fusion[i][4];
 	    double check_speed = sqrt(vx*vx + vy*vy);
 	    double check_car_s = sensor_fusion[i][5];
 
+            // calculate where the car is headed
+            vector<double> frenet = getFrenet(x+(double)prev_size*.02*vx, y+(double)prev_size*.02*vy, atan2(vy, vx), map_waypoints_x, map_waypoints_y);
+            double next_d = frenet[1];
+
 	    check_car_s += ((double)prev_size*.02*check_speed);
 
             for(int l = 0; l < too_close_front.size(); l++) {
-	      if (d < (2.0 + 4.0*l + 2.0) && d > (2.0 + 4.0*l - 2.0)) {
+	      if ((d < (2.0 + 4.0*l + 2.0) && d > (2.0 + 4.0*l - 2.0)) ||
+	          (next_d < (2.0 + 4.0*l + 2.0) && next_d > (2.0 + 4.0*l - 2.0))) {
 	        if ((check_car_s > car_s) && (check_car_s-car_s < 30.0)) {
 		  too_close_front[l] = true;
 	        }
