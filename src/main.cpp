@@ -254,6 +254,8 @@ int main() {
           // if the car is within 30 meters start changing lanes and slowing down
           vector<bool> too_close_front{false, false, false};
           vector<bool> too_close_rear{false, false, false};
+          vector<double> too_close_front_speed(3);
+          vector<double> too_close_rear_speed(3);
 
           for(int i = 0; i < sensor_fusion.size(); i++) {
             float d = sensor_fusion[i][6];
@@ -265,19 +267,21 @@ int main() {
 	    double check_car_s = sensor_fusion[i][5];
 
             // calculate where the car is headed
-            vector<double> frenet = getFrenet(x+(double)prev_size*.02*vx, y+(double)prev_size*.02*vy, atan2(vy, vx), map_waypoints_x, map_waypoints_y);
-            double next_d = frenet[1];
+            // vector<double> frenet = getFrenet(x+(double)prev_size*.02*vx, y+(double)prev_size*.02*vy, atan2(vy, vx), map_waypoints_x, map_waypoints_y);
+            // double next_d = frenet[1];
 
 	    check_car_s += ((double)prev_size*.02*check_speed);
 
             for(int l = 0; l < too_close_front.size(); l++) {
-	      if ((d < (2.0 + 4.0*l + 2.0) && d > (2.0 + 4.0*l - 2.0)) ||
-	          (next_d < (2.0 + 4.0*l + 2.0) && next_d > (2.0 + 4.0*l - 2.0))) {
+	      if ((d < (2.0 + 4.0*l + 2.0) && d > (2.0 + 4.0*l - 2.0))) {
+	         // ||  (next_d < (2.0 + 4.0*l + 2.0) && next_d > (2.0 + 4.0*l - 2.0))) {
 	        if ((check_car_s > car_s) && (check_car_s-car_s < 30.0)) {
 		  too_close_front[l] = true;
+      too_close_front_speed[l] = check_speed;
 	        }
-	        if ((check_car_s <= car_s) && (car_s-check_car_s <= 30.0)) {
+	        if ((check_car_s <= car_s) && (car_s-check_car_s <= 20.0)) {
 		  too_close_rear[l] = true;
+      too_close_rear_speed[l] = check_speed;
 	        }
               }
             }
@@ -304,8 +308,8 @@ lane_change_occurred:
           // if the car is too close, start slowing down
           // otherwise accelerate until we reach speed limit 
 	  if (too_close) {
-            ref_vel -= .224;
-	  } else if (ref_vel < 49.5) {
+            ref_vel += .0112*(too_close_front_speed[lane] - car_speed);
+	  } else if (ref_vel < 49.75) {
             ref_vel += .224;
 	  }
 
