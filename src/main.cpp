@@ -9,6 +9,7 @@
 #include "Eigen-3.3/Eigen/QR"
 #include "json.hpp"
 #include "spline.h"
+#include "classifier.h"
 
 using namespace std;
 
@@ -164,6 +165,44 @@ vector<double> getXY(double s, double d, const vector<double> &maps_s, const vec
 
 }
 
+vector<vector<double> > Load_State(const string& file_name)
+{
+    ifstream in_state_(file_name.c_str(), ifstream::in);
+    vector< vector<double >> state_out;
+    string line;
+    
+    while (getline(in_state_, line)) 
+    {
+        istringstream iss(line);
+    	vector<double> x_coord;
+    	
+    	string token;
+    	while( getline(iss,token,','))
+    	{
+    	    x_coord.push_back(stod(token));
+    	}
+    	state_out.push_back(x_coord);
+    }
+    return state_out;
+}
+
+vector<string> Load_Label(const string& file_name)
+{
+    ifstream in_label_(file_name.c_str(), ifstream::in);
+    vector< string > label_out;
+    string line;
+    while (getline(in_label_, line)) 
+    {
+    	istringstream iss(line);
+    	string label;
+	    iss >> label;
+    
+	    label_out.push_back(label);
+    }
+    return label_out;
+}
+
+
 int main() {
   uWS::Hub h;
 
@@ -173,6 +212,19 @@ int main() {
   vector<double> map_waypoints_s;
   vector<double> map_waypoints_dx;
   vector<double> map_waypoints_dy;
+
+  vector< vector<double> > X_train = Load_State("../data/train_states.txt");
+  vector< string > Y_train  = Load_Label("../data/train_labels.txt");
+    
+  cout << "X_train number of elements " << X_train.size() << endl;
+  cout << "Y_train number of elements " << Y_train.size() << endl;
+
+  GNB gnb;
+  //for (auto& row : X_train) {
+  //  row[2] = row[1]*row[3];
+  //}
+  gnb.train(X_train, Y_train);
+
 
   // Waypoint map to read from
   string map_file_ = "../data/highway_map.csv";
@@ -203,7 +255,7 @@ int main() {
   
   int lane = 1;
   double ref_vel = 0.0;
-  h.onMessage([&lane, &ref_vel, &map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy](uWS::WebSocket<uWS::SERVER> ws, 
+  h.onMessage([&lane, &ref_vel, &map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy,&gnb](uWS::WebSocket<uWS::SERVER> ws, 
 	                   char *data, size_t length,
                      uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
@@ -245,9 +297,9 @@ int main() {
 
           size_t prev_size = previous_path_x.size();
 
-	  if (prev_size > 0) {
+          if (prev_size > 0) {
             car_s = end_path_s;
-	  }
+          }
  
           // go thru every car and determine whether it is in our lane
           // then, calculate its speed and location into the future
@@ -260,34 +312,62 @@ int main() {
           for(int i = 0; i < sensor_fusion.size(); i++) {
             float d = sensor_fusion[i][6];
             double x = sensor_fusion[i][1];
-	    double y = sensor_fusion[i][2];
+            double y = sensor_fusion[i][2];
             double vx = sensor_fusion[i][3];
-	    double vy = sensor_fusion[i][4];
-	    double check_speed = sqrt(vx*vx + vy*vy);
-	    double check_car_s = sensor_fusion[i][5];
+            double vy = sensor_fusion[i][4];
+            double check_speed = sqrt(vx*vx + vy*vy);
+            double check_car_s = sensor_fusion[i][5];
 
             // calculate where the car is headed
-            // vector<double> frenet = getFrenet(x+(double)prev_size*.02*vx, y+(double)prev_size*.02*vy, atan2(vy, vx), map_waypoints_x, map_waypoints_y);
-            // double next_d = frenet[1];
+            vector<double> frenet = getFrenet(x+.02*vx, y+.02*vy, atan2(vy, vx), map_waypoints_x, map_waypoints_y);
+            double s = check_car_s;
+            double next_s = frenet[0];
+            double next_d = frenet[1];
+            double s_dot = (next_s - s)/.02;
+            double d_dot = (next_d - d)/.02;
 
-	    check_car_s += ((double)prev_size*.02*check_speed);
+            vector<double> sample = {s, d, s_dot, d_dot};
+            string action = gnb.predict(sample);
+
+	          check_car_s += ((double)prev_size*.02*check_speed);
 
             for(int l = 0; l < too_close_front.size(); l++) {
-	      if ((d < (2.0 + 4.0*l + 2.0) && d > (2.0 + 4.0*l - 2.0))) {
-	         // ||  (next_d < (2.0 + 4.0*l + 2.0) && next_d > (2.0 + 4.0*l - 2.0))) {
-	        if ((check_car_s > car_s) && (check_car_s-car_s < 30.0)) {
-		  too_close_front[l] = true;
-      too_close_front_speed[l] = check_speed;
-	        }
-	        if ((check_car_s <= car_s) && (car_s-check_car_s <= 20.0)) {
-		  too_close_rear[l] = true;
-      too_close_rear_speed[l] = check_speed;
-	        }
+	            if (d < (4.0 + 4.0*l) && d > 4.0*l) {
+	               // ||  (next_d < (2.0 + 4.0*l + 2.0) && next_d > (2.0 + 4.0*l - 2.0))) {
+	              if ((check_car_s > car_s) && (check_car_s-car_s < 30.0)) {
+		              too_close_front[l] = true;
+                  too_close_front_speed[l] = check_speed;
+	              }
+	              if ((check_car_s <= car_s) && (car_s-check_car_s <= 20.0)) {
+		              too_close_rear[l] = true;
+                  too_close_rear_speed[l] = check_speed;
+	              }
+
+                if (action == "left") {
+                  if ((check_car_s > car_s) && (check_car_s-car_s < 30.0)) {
+		                too_close_front[l-1] = true;
+                    too_close_front_speed[l-1] = check_speed;
+	                }
+	                if ((check_car_s <= car_s) && (car_s-check_car_s <= 20.0)) {
+		                too_close_rear[l-1] = true;
+                    too_close_rear_speed[l-1] = check_speed;
+	                }
+                }
+                if (action == "right") {
+                  if ((check_car_s > car_s) && (check_car_s-car_s < 30.0)) {
+		                too_close_front[l+1] = true;
+                    too_close_front_speed[l+1] = check_speed;
+	                }
+	                if ((check_car_s <= car_s) && (car_s-check_car_s <= 20.0)) {
+		                too_close_rear[l+1] = true;
+                    too_close_rear_speed[l+1] = check_speed;
+	                }
+                }
               }
             }
           }
 
-	  bool too_close = false;
+	        bool too_close = false;
 
           if (too_close_front[lane]) {
             too_close = true;
