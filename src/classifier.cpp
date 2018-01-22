@@ -105,7 +105,7 @@ string GNB::predict(const vector<double>& sample)
 	size_t l = 0;
 	for(size_t k = 0; k < possible_labels.size(); k++) {
 		double product = priors[k];
-	    for(size_t i = 0; i < sample.size(); i++) {
+	    for(size_t i = 1; i < sample.size(); i++) {
 		    product *= gaussian(sample[i], mean_std_table[i][k].first, mean_std_table[i][k].second);
 		}
 		label_probabilities[k] = product;

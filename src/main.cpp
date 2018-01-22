@@ -326,10 +326,18 @@ int main() {
             double s_dot = (next_s - s)/.02;
             double d_dot = (next_d - d)/.02;
 
-            vector<double> sample = {s, d, s_dot, d_dot};
-            string action = gnb.predict(sample);
+            vector<double> sample = {next_s, next_d, s_dot, d_dot};
+            string action;
 
 	          check_car_s += ((double)prev_size*.02*check_speed);
+
+            if (d > 0 && d < 12. && 
+                (((check_car_s > car_s) && (check_car_s-car_s < 30.0)) || 
+                ((check_car_s <= car_s) && (car_s-check_car_s <= 20.0)))) {
+              action = gnb.predict(sample);
+              cout << "s = " << check_car_s << " d = " << d << endl;
+              cout << action << " " << sample[0] << ", " << sample[1] << ", "<< sample[2] << ", "<< sample[3] << endl;
+            }
 
             for(int l = 0; l < too_close_front.size(); l++) {
 	            if (d < (4.0 + 4.0*l) && d > 4.0*l) {
@@ -343,7 +351,7 @@ int main() {
                   too_close_rear_speed[l] = check_speed;
 	              }
 
-                if (action == "left") {
+                if (action == "left" && l > 0.0) {
                   if ((check_car_s > car_s) && (check_car_s-car_s < 30.0)) {
 		                too_close_front[l-1] = true;
                     too_close_front_speed[l-1] = check_speed;
@@ -353,7 +361,7 @@ int main() {
                     too_close_rear_speed[l-1] = check_speed;
 	                }
                 }
-                if (action == "right") {
+                if (action == "right" && l < 2.0) {
                   if ((check_car_s > car_s) && (check_car_s-car_s < 30.0)) {
 		                too_close_front[l+1] = true;
                     too_close_front_speed[l+1] = check_speed;
@@ -389,7 +397,7 @@ lane_change_occurred:
           // otherwise accelerate until we reach speed limit 
 	  if (too_close) {
             ref_vel += .0112*(too_close_front_speed[lane] - car_speed);
-	  } else if (ref_vel < 49.75) {
+	  } else if (ref_vel < 49.5) {
             ref_vel += .224;
 	  }
 
