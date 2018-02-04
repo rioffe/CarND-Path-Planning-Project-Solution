@@ -312,6 +312,7 @@ int main()
           vector<bool> too_close_rear{false, false, false};
           vector<double> too_close_front_speed(3);
           vector<double> too_close_rear_speed(3);
+          vector<double> too_close_front_distance = { 30., 30., 30.};
 
           for (int i = 0; i < sensor_fusion.size(); i++)
           {
@@ -331,29 +332,33 @@ int main()
             double s_dot = (next_s - s) / .02;
             double d_dot = (next_d - d) / .02;
 
-            vector<double> sample = {next_s, next_d, s_dot, d_dot};
-            string action;
+            // we will predict the action to take based on this vector
+            vector<double> sample = {s, d, s_dot, d_dot};
+            string action = "keep";
 
             check_car_s += ((double)prev_size * .02 * check_speed);
-
+            // We check that the car is in one of three lanes
+            // and that all other cars are within 30 meters of us (is s coordinate)
             if (d > 0 && d < 12. &&
                 (((check_car_s > car_s) && (check_car_s - car_s < 30.0)) ||
                  ((check_car_s <= car_s) && (car_s - check_car_s <= 30.0))))
             {
               action = gnb.predict(sample);
-              cout << "s = " << check_car_s << " d = " << d << endl;
-              cout << action << " " << sample[0] << ", " << sample[1] << ", " << sample[2] << ", " << sample[3] << endl;
+              //cout << "s = " << check_car_s << " d = " << d << endl;
+              //cout << action << " " << sample[0] << ", " << sample[1] << ", " << sample[2] << ", " << sample[3] << endl;
             }
 
-            for (int l = 0; l < too_close_front.size(); l++)
+            // for each lane
+            for (size_t l = 0; l < too_close_front.size(); l++)
             {
+              // if the car is within the lane
               if (d < (4.0 + 4.0 * l) && d > 4.0 * l)
               {
-                // ||  (next_d < (2.0 + 4.0*l + 2.0) && next_d > (2.0 + 4.0*l - 2.0))) {
                 if ((check_car_s > car_s) && (check_car_s - car_s < 30.0))
                 {
                   too_close_front[l] = true;
                   too_close_front_speed[l] = check_speed;
+                  too_close_front_distance[l] = check_car_s - car_s;
                 }
                 if ((check_car_s <= car_s) && (car_s - check_car_s <= 30.0))
                 {
@@ -361,12 +366,13 @@ int main()
                   too_close_rear_speed[l] = check_speed;
                 }
 
-                if (action == "left" && l > 0.0)
+                if (action == "left" && l > 0)
                 {
                   if ((check_car_s > car_s) && (check_car_s - car_s < 30.0))
                   {
                     too_close_front[l - 1] = true;
                     too_close_front_speed[l - 1] = check_speed;
+                    too_close_front_distance[l - 1] = check_car_s - car_s;
                   }
                   if ((check_car_s <= car_s) && (car_s - check_car_s <= 30.0))
                   {
@@ -374,12 +380,13 @@ int main()
                     too_close_rear_speed[l - 1] = check_speed;
                   }
                 }
-                if (action == "right" && l < 2.0)
+                if (action == "right" && l < 2)
                 {
                   if ((check_car_s > car_s) && (check_car_s - car_s < 30.0))
                   {
                     too_close_front[l + 1] = true;
                     too_close_front_speed[l + 1] = check_speed;
+                    too_close_front_distance[l + 1] = check_car_s - car_s;
                   }
                   if ((check_car_s <= car_s) && (car_s - check_car_s <= 30.0))
                   {
@@ -418,11 +425,11 @@ int main()
           // otherwise accelerate until we reach speed limit
           if (too_close)
           {
-            ref_vel += .0112 * (too_close_front_speed[lane] - car_speed);
+            ref_vel += .0112 * (too_close_front_speed[lane] - car_speed) - .028 *(1. - 1./30. * too_close_front_distance[lane]);
           }
           else if (ref_vel < 49.5)
           {
-            ref_vel += .224;
+            ref_vel += .896*(49.5 - ref_vel)/49.5;
           }
 
           vector<double> ptsx, ptsy;
